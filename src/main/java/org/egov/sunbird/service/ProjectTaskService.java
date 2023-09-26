@@ -1,12 +1,11 @@
 package org.egov.sunbird.service;
 
 import lombok.extern.slf4j.Slf4j;
-import org.apache.kafka.common.resource.Resource;
 import org.egov.common.http.client.ServiceRequestClient;
 import org.egov.common.models.household.Household;
 import org.egov.common.models.household.HouseholdMember;
 import org.egov.common.models.individual.Individual;
-import org.egov.common.models.product.ProductVariantResponse;
+
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -14,13 +13,15 @@ import org.egov.common.models.project.BeneficiaryBulkResponse;
 import org.egov.common.models.project.ProjectBeneficiary;
 import org.egov.common.models.project.Task;
 import org.egov.common.models.project.TaskResource;
+import org.egov.common.producer.Producer;
+import org.egov.sunbird.Repository.VCServiceDeliveryRepository;
 import org.egov.sunbird.config.SunbirdProperties;
 import org.egov.sunbird.models.BenificiaryDTO;
 import org.egov.sunbird.models.RegistryRequest;
 import org.egov.sunbird.models.ResourceDTO;
+import org.egov.sunbird.models.VcServiceDelivery;
 import org.egov.tracer.model.CustomException;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.redis.hash.ObjectHashMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
@@ -39,6 +40,9 @@ import static org.egov.sunbird.Constants.PROJECT_BENEFICIARY_FETCH_ERROR_MESSAGE
 @Slf4j
 public class ProjectTaskService {
 
+    private final Producer producer;
+
+    private final VCServiceDeliveryRepository vcServiceDeliveryRepository;
     private final SunbirdProperties properties;
 
     private final ServiceRequestClient serviceRequestClient;
@@ -50,10 +54,12 @@ public class ProjectTaskService {
 
 
     @Autowired
-    protected ProjectTaskService(SunbirdProperties properties,
+    protected ProjectTaskService(Producer producer, VCServiceDeliveryRepository vcServiceDeliveryRepository, SunbirdProperties properties,
                                  ServiceRequestClient serviceRequestClient, HouseholdService householdService,
                                  IndividualService individualService,
                                  ProjectService projectService) {
+        this.producer = producer;
+        this.vcServiceDeliveryRepository = vcServiceDeliveryRepository;
         this.properties = properties;
         this.serviceRequestClient = serviceRequestClient;
         this.householdService = householdService;
@@ -61,7 +67,7 @@ public class ProjectTaskService {
         this.projectService = projectService;
     }
 
-    public void transform(List<Task> taskList) {
+    public void transform(List<Task> taskList, Boolean isCreate) {
 
         List<String> projectBeneficiaryClientReferenceIds = new ArrayList<>();
         List<String> householdClientReferenceIds = new ArrayList<>();
@@ -83,7 +89,7 @@ public class ProjectTaskService {
         setHouseholdHeads(householdClientReferenceIds, tenantId, individualClientReferenceIds, hosueholdHeadMap);
         setIndividuals(individualClientReferenceIds, tenantId, individualMap);
 
-        processTasks(taskList, projectBeneficiaryMap, householdMap, hosueholdHeadMap, individualMap);
+        processTasks(taskList, projectBeneficiaryMap, householdMap, hosueholdHeadMap, individualMap, isCreate);
 
     }
 
@@ -91,7 +97,8 @@ public class ProjectTaskService {
                               Map<String, ProjectBeneficiary> projectBeneficiaryMap,
                               Map<String, Household> householdMap,
                               Map<String, HouseholdMember> hosueholdHeadMap,
-                              Map<String, Individual> individualMap) {
+                              Map<String, Individual> individualMap,
+                              boolean isCreate) {
         for (Task task : taskList) {
             ProjectBeneficiary projectBeneficiary = projectBeneficiaryMap
                     .get(task.getProjectBeneficiaryClientReferenceId());
@@ -122,15 +129,37 @@ public class ProjectTaskService {
             //TODO set all values in sunbird object
             log.debug( "this is the req that we send to registry",reqToCreateVC);
 
-            StringBuilder uri = new StringBuilder();
-            uri.append(properties.getRegistryHost()).append(properties.getRegistryURL());
-            Object response = serviceRequestClient.fetchResult(uri,
-                    reqToCreateVC,
-                    BeneficiaryBulkResponse.class);
-
-            log.debug((String) response);
-
-
+            if (isCreate) {
+                try {
+                    StringBuilder uri = new StringBuilder();
+                    uri.append(properties.getRegistryHost()).append(properties.getRegistryURL());
+//                    Object response = serviceRequestClient.fetchResult(uri,
+//                            reqToCreateVC,
+//                            BeneficiaryBulkResponse.class);
+//                    log.debug((String) response);
+                    // Create the audit data
+                    VcServiceDelivery auditDetailsToAddInDB = VcServiceDelivery.builder()
+                            .id(UUID.randomUUID().toString())
+                            .serviceTaskId(task.getId())
+                            .certificateId("Id from response")
+                            .distributedBy(task.getCreatedBy())
+                            .beneficiaryId(task.getProjectBeneficiaryId())
+                            .auditDetails(task.getAuditDetails())
+                            .build();
+                    List<VcServiceDelivery> auditDetails = new ArrayList<VcServiceDelivery>();
+                    auditDetails.add(auditDetailsToAddInDB );
+                    vcServiceDeliveryRepository.save( auditDetails, properties.getSaveServiceDeliveryVCTaskTopic());
+//                    producer.push(properties.getSaveServiceDeliveryVCTaskTopic(), auditDetailsToAddInDB);
+                } catch (Exception exception) {
+                    log.debug(exception.getMessage());
+                    log.error("error occurred while creating a VC using the Registry service: {}", exception.getMessage());
+                }
+            } else {
+                //                    TODO update logic here
+                //                 get the vcId from the mapper table using the taskID
+                //                 update the vc in registry
+                //                 Emit an event to kafka topic to update using the taskID
+            }
         }
     }
 

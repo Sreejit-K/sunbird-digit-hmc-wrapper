@@ -31,15 +31,27 @@ public class ProjectTaskConsumer {
         this.objectMapper = objectMapper;
     }
 
-    @KafkaListener(topics = { "${transformer.consumer.bulk.create.project.task.topic}",
-            "${transformer.consumer.bulk.update.project.task.topic}"})
-    public void consumeTask(ConsumerRecord<String, Object> payload,
+    @KafkaListener(topics = { "${transformer.consumer.bulk.create.project.task.topic}"})
+    public void consumeCreateTask(ConsumerRecord<String, Object> payload,
                            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
         try {
             List<Task> payloadList = Arrays.asList(objectMapper
                     .readValue((String) payload.value(),
                             Task[].class));
-            projectTaskService.transform(payloadList);
+            projectTaskService.transform(payloadList, true);
+        } catch (Exception exception) {
+            log.error("error in project task bulk consumer {}", ExceptionUtils.getStackTrace(exception));
+        }
+    }
+
+    @KafkaListener(topics = { "${transformer.consumer.bulk.create.project.task.topic}"})
+    public void consumeUpdateTask(ConsumerRecord<String, Object> payload,
+                            @Header(KafkaHeaders.RECEIVED_TOPIC) String topic) {
+        try {
+            List<Task> payloadList = Arrays.asList(objectMapper
+                    .readValue((String) payload.value(),
+                            Task[].class));
+            projectTaskService.transform(payloadList, false);
         } catch (Exception exception) {
             log.error("error in project task bulk consumer {}", ExceptionUtils.getStackTrace(exception));
         }

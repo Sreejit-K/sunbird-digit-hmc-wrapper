@@ -1,0 +1,33 @@
+serviceMaps:
+  serviceName: project
+  mappings:
+    - version: 1.0
+      description: Saves VC mapping data
+      fromTopic: save-vc-service-delivery-topic
+      isTransaction: true
+      queryMaps:
+        - query: INSERT INTO eg_vc_service_delivery (id, certificateId, serviceTaskId, beneficiaryId, distributedBy, createdBy, lastModifiedBy,createdTime, lastModifiedTime) VALUES (?,?,?,?,?,?,?,?,?);
+          basePath: $.*
+          jsonMaps:
+            - jsonPath: $.*.id
+            - jsonPath: $.*.certificateId
+            - jsonPath: $.*.serviceTaskId
+            - jsonPath: $.*.beneficiaryId
+            - jsonPath: $.*.distributedBy
+            - jsonPath: $.*.auditDetails.createdBy
+            - jsonPath: $.*.auditDetails.lastModifiedBy
+            - jsonPath: $.*.auditDetails.createdTime
+            - jsonPath: $.*.auditDetails.lastModifiedTime
+
+    - version: 1.0
+      description: Updates VC mapping data
+      fromTopic: update-vc-service-delivery-topic
+      isTransaction: true
+      queryMaps:
+        - query: UPDATE eg_vc_service_delivery SET certificateId=?, lastModifiedBy=?, lastModifiedTime=? WHERE serviceTaskId = ?
+          basePath: $.*
+          jsonMaps:
+            - jsonPath: $.*.certificateId
+            - jsonPath: $.*.auditDetails.lastModifiedBy
+            - jsonPath: $.*.auditDetails.lastModifiedTime
+

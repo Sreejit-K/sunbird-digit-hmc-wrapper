@@ -1,8 +1,11 @@
 package org.egov.sunbird.models;
 
+import org.springframework.beans.factory.annotation.Value;
+
 import java.util.List;
 
 public class RegistryRequest {
+    @Value("")
     private String serviceDeliveryId;
     private BenificiaryDTO beneficiary;
     private List<ResourceDTO> benefitsDelivered;

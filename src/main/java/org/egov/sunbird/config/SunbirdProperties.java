@@ -53,4 +53,11 @@ public class SunbirdProperties {
     @Value("${sunbird.registry.url}")
     private String registryURL;
 
+    @Value("${transformer.consumer.vc.create.serviceDelivery.task.topic}")
+    private String saveServiceDeliveryVCTaskTopic;
+
+    @Value("${transformer.consumer.vc.update.serviceDelivery.task.topic}")
+    private String updateServiceDeliveryVCTaskTopic;
+
+
 }
