@@ -1,5 +1,6 @@
 package org.egov.sunbird.service;
 
+import ch.qos.logback.core.encoder.EchoEncoder;
 import lombok.extern.slf4j.Slf4j;
 import org.egov.common.http.client.ServiceRequestClient;
 import org.egov.common.models.household.Household;
@@ -16,10 +17,7 @@ import org.egov.common.models.project.TaskResource;
 import org.egov.common.producer.Producer;
 import org.egov.sunbird.Repository.VCServiceDeliveryRepository;
 import org.egov.sunbird.config.SunbirdProperties;
-import org.egov.sunbird.models.BenificiaryDTO;
-import org.egov.sunbird.models.RegistryRequest;
-import org.egov.sunbird.models.ResourceDTO;
-import org.egov.sunbird.models.VcServiceDelivery;
+import org.egov.sunbird.models.*;
 import org.egov.tracer.model.CustomException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -35,6 +33,10 @@ import static org.egov.sunbird.Constants.INDIVIDUAL_FETCH_ERROR;
 import static org.egov.sunbird.Constants.INDIVIDUAL_FETCH_ERROR_MESSAGE;
 import static org.egov.sunbird.Constants.PROJECT_BENEFICIARY_FETCH_ERROR;
 import static org.egov.sunbird.Constants.PROJECT_BENEFICIARY_FETCH_ERROR_MESSAGE;
+import static org.egov.sunbird.Constants.REGISTRY_VC_CREATION_ERROR;
+import static org.egov.sunbird.Constants.REGISTRY_VC_CREATION_ERROR_MESSAGE;
+import static org.egov.sunbird.Constants.CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR;
+import static org.egov.sunbird.Constants.CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR_MESSAGE;
 
 @Component
 @Slf4j
@@ -72,7 +74,6 @@ public class ProjectTaskService {
         List<String> projectBeneficiaryClientReferenceIds = new ArrayList<>();
         List<String> householdClientReferenceIds = new ArrayList<>();
         List<String> individualClientReferenceIds = new ArrayList<>();
-        List<String> productVariantReferenceIds = new ArrayList<>();
         String tenantId = taskList.get(0).getTenantId();
 
         Map<String, ProjectBeneficiary> projectBeneficiaryMap = new HashMap<>();
@@ -126,39 +127,46 @@ public class ProjectTaskService {
             }
 
             RegistryRequest reqToCreateVC = registryRequestTransformer(task.getResources(), projectBeneficiary,task.getId());
-            //TODO set all values in sunbird object
-            log.debug( "this is the req that we send to registry",reqToCreateVC);
+
 
             if (isCreate) {
-                try {
+
                     StringBuilder uri = new StringBuilder();
                     uri.append(properties.getRegistryHost()).append(properties.getRegistryURL());
-//                    Object response = serviceRequestClient.fetchResult(uri,
-//                            reqToCreateVC,
-//                            BeneficiaryBulkResponse.class);
-//                    log.debug((String) response);
-                    // Create the audit data
-                    VcServiceDelivery auditDetailsToAddInDB = VcServiceDelivery.builder()
-                            .id(UUID.randomUUID().toString())
-                            .serviceTaskId(task.getId())
-                            .certificateId("Id from response")
-                            .distributedBy(task.getCreatedBy())
-                            .beneficiaryId(task.getProjectBeneficiaryId())
-                            .auditDetails(task.getAuditDetails())
-                            .build();
-                    List<VcServiceDelivery> auditDetails = new ArrayList<VcServiceDelivery>();
-                    auditDetails.add(auditDetailsToAddInDB );
-                    vcServiceDeliveryRepository.save( auditDetails, properties.getSaveServiceDeliveryVCTaskTopic());
-//                    producer.push(properties.getSaveServiceDeliveryVCTaskTopic(), auditDetailsToAddInDB);
-                } catch (Exception exception) {
-                    log.debug(exception.getMessage());
-                    log.error("error occurred while creating a VC using the Registry service: {}", exception.getMessage());
-                }
+                    RegistryResponse response = null;
+                    try {
+                        response = serviceRequestClient.fetchResult(uri,
+                                reqToCreateVC,
+                                RegistryResponse.class);
+                    } catch (Exception exception) {
+                        log.error("error occurred while creating a VC using the Registry service: {}", exception.getMessage());
+                        throw new CustomException(REGISTRY_VC_CREATION_ERROR,
+                                REGISTRY_VC_CREATION_ERROR_MESSAGE + exception);
+                    }
+                    try {
+                        // Create the Mapper data
+                        VcServiceDelivery auditDetailsToAddInDB = VcServiceDelivery.builder()
+                                .id(UUID.randomUUID().toString())
+                                .serviceTaskId(task.getId())
+                                .certificateId(response.getResult().getServiceDelivery().getOsid())
+                                .distributedBy(emptyIfNull(task.getCreatedBy()))
+                                .beneficiaryId(emptyIfNull(task.getProjectBeneficiaryId()))
+                                .auditDetails(task.getAuditDetails())
+                                .build();
+                        List<VcServiceDelivery> auditDetails = new ArrayList<VcServiceDelivery>();
+                        auditDetails.add(auditDetailsToAddInDB );
+                        vcServiceDeliveryRepository.save( auditDetails, properties.getSaveServiceDeliveryVCTaskTopic());
+                    } catch (Exception exception) {
+                        throw new CustomException(CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR ,
+                                CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR_MESSAGE +  exception);
+                    }
+
+
             } else {
-                //                    TODO update logic here
-                //                 get the vcId from the mapper table using the taskID
-                //                 update the vc in registry
-                //                 Emit an event to kafka topic to update using the taskID
+                //     TODO update logic here
+                //     get the VC_Id from the mapper table using the service_taskID
+                //     update the vc in registry
+                //     Emit an event to kafka topic to update using the taskID mapper with the new VC in the mapper table
             }
         }
     }
@@ -176,26 +184,32 @@ public class ProjectTaskService {
         return iso8601DateTime;
     }
 
+    public static String emptyIfNull(String input) {
+    if (input == null) {
+        return "";
+    }
+    return input;
+    }
+
     public static RegistryRequest registryRequestTransformer(List<TaskResource> resources, ProjectBeneficiary projectBeneficiary, String serviceDeliveryId) {
 
         List<ResourceDTO> benefitsDelivered = new ArrayList<ResourceDTO>() ;
         for (TaskResource resource : resources) {
 
             ResourceDTO resourceToSend = ResourceDTO.builder()
-                    .productVariantId(resource.getProductVariantId())
-                    .quantity( Integer.parseInt(resource.getQuantity().toString()))
-                    .isDelivered(resource.getIsDelivered())
-                    .deliveryComment(resource.getDeliveryComment())
+                    .productVariantId(emptyIfNull(resource.getProductVariantId()))
+                    .quantity(Integer.parseInt(resource.getQuantity().toString() != null ? resource.getQuantity().toString() : "0"))
+                    .isDelivered(resource.getIsDelivered() ? true : false)
+                    .deliveryComment(emptyIfNull(resource.getDeliveryComment()))
                     .deliveryDate(convertToISO8601(resource.getAuditDetails().getCreatedTime()))
-                    .deliveredBy(resource.getAuditDetails().getCreatedBy())
-                    .name("Have to fetch it from the product API").build();
+                    .deliveredBy(emptyIfNull(resource.getAuditDetails().getCreatedBy())).build();
             benefitsDelivered.add(resourceToSend);
         }
         BenificiaryDTO benificiaryDTO = BenificiaryDTO.builder()
-                .beneficiaryId(projectBeneficiary.getId())
+                .beneficiaryId(emptyIfNull(projectBeneficiary.getId()))
                 .beneficiaryType("HOUSEHOLD")
-                .projectId(projectBeneficiary.getProjectId())
-                .tenantId(projectBeneficiary.getTenantId())
+                .projectId(emptyIfNull(projectBeneficiary.getId()))
+                .tenantId(emptyIfNull(projectBeneficiary.getTenantId()))
                 .registrationDate(convertToISO8601(projectBeneficiary.getDateOfRegistration()))
                 .build();
 

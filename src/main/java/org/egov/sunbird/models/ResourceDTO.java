@@ -23,8 +23,6 @@ public class ResourceDTO {
     private String deliveryDate;
     @Value("")
     private String deliveredBy;
-    @Value("")
-    private String name;
 
 }
 

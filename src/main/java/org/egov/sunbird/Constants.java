@@ -11,4 +11,10 @@ public interface Constants {
     String INDIVIDUAL_FETCH_ERROR_MESSAGE = "error while fetching individual details for clientReferenceId: ";
     String PRODUCT_VARIANT_FETCH_ERROR = "PRODUCT_VARIANT_FETCH_ERROR";
     String PRODUCT_VARIANT_FETCH_ERROR_MESSAGE = "error while fetching product variant error message";
+    String NAME_OF_THE_MAPPER_TABLE = "eg_vc_service_delivery";
+    String REGISTRY_VC_CREATION_ERROR = "REGISTRY_VC_CREATION_ERROR";
+    String REGISTRY_VC_CREATION_ERROR_MESSAGE = "error while creating the verifiable credential";
+    String CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR = "CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR";
+    String CREATION_OF_SERVICE_DELIVERY_MAPPER_TABLE_ERROR_MESSAGE = "error while saving the mapper configs using the persister";
+
 }
